@@ -1,6 +1,6 @@
 # Places
 
-Una app de [Exact](https://expo.dev) para registrar los lugares que visitaste: mapa nativo de iOS, un long tap para marcar y un bottom sheet para la foto, el label y guardar.
+Una app hecha con **Exact**, el SDK de apps de Expo, para registrar los lugares que visitaste: mapa nativo de iOS, un long tap para marcar y un bottom sheet para la foto, el label y guardar.
 
 | Mapa | Nuevo lugar |
 | --- | --- |
