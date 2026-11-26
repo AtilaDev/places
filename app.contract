@@ -1,0 +1,148 @@
+// Places: the map is native (modules/apple/PlaceMap.swift). A long press on
+// the map opens the sheet with the tap's coordinates; the GPS centers the map.
+use getCurrentPosition, geolocationStatus, GeolocationPosition, GeolocationStatus from "@exact/geolocation"
+use takePhotoWithCameraApp, Photo from "@exact/camera"
+
+shape Place
+  id: string
+  latitude: number
+  longitude: number
+  label: string
+  photo: string
+
+shape Saved
+  id: string
+
+shape MarkerText
+  json: string
+
+shape Page
+  platform: string
+
+routes nav
+  home "/"
+    add "/add"
+
+component Places
+  state draftAt = ""
+  state draftLabel = ""
+  state draftPhoto = ""
+  state centerLat = 0
+  state centerLon = 0
+  state zoom = 2
+  state cameraAt = ""
+  resource page = exactPage() as shape Page
+  resource status = geolocationStatus() as shape GeolocationStatus else empty()
+  resource places = loadPlaces() as shape Place[] else empty()
+  resource markers = markerJson() as shape MarkerText else empty()
+  mutation located as shape GeolocationPosition then centered
+  mutation shot as shape Photo then took
+  mutation added as shape Saved refreshes places, markers then saved
+  task firstFix when status.state == "granted"
+    after(1, locate)
+  derive placeCount = places.length == 1 ? "1 place" : `${places.length} places`
+  derive centerText = centerLat.toFixed(6) + ", " + centerLon.toFixed(6)
+  derive shotError = match failure(shot) { case some(f) => f.code == "AbortError" ? "" : (f.code == "NotFoundError" ? "No camera here. Try it on an iPhone." : `The camera failed (${f.code}).`), case none => "" }
+  derive saveError = match failure(added) { case some(f) => "Couldn’t save the place.", case none => "" }
+
+  action locate
+    send located = getCurrentPosition(enableHighAccuracy=true, maximumAge=60000)
+  action centered
+    match located
+      case some(p)
+        centerLat = p.coords.latitude
+        centerLon = p.coords.longitude
+        zoom = 15
+      case none
+        centerLat = centerLat
+  action moved(at: string)
+    cameraAt = at
+  action longPressed(at: string)
+    draftAt = at
+    draftLabel = ""
+    draftPhoto = ""
+    shot = none
+    nav = push(nav, "/add")
+  action addHere
+    draftAt = cameraAt == "" ? centerText : cameraAt
+    draftLabel = ""
+    draftPhoto = ""
+    shot = none
+    nav = push(nav, "/add")
+  action editLabel(value: string)
+    draftLabel = value
+  action take
+    send shot = takePhotoWithCameraApp(facingMode="environment", path="app:/data/photos/pending")
+  action took
+    match shot
+      case some(p)
+        draftPhoto = p.path
+      case none
+        draftPhoto = draftPhoto
+  action save
+    send added = savePlace(draftAt, draftLabel.trim(), draftPhoto)
+  action saved
+    match added
+      case some(r)
+        draftAt = ""
+        draftLabel = ""
+        draftPhoto = ""
+        nav = back(nav)
+      case none
+        draftAt = draftAt
+  action cancel
+    draftAt = ""
+    draftLabel = ""
+    draftPhoto = ""
+    shot = none
+    nav = back(nav)
+
+  view
+    main testId="app" navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        if e.name == "home"
+          column navigationKey=`${e.id}` position="absolute" inset=0 display="flex" flex-direction="column"
+            header display="flex" align-items="center" gap=8
+              text "Places" role="heading" aria-level=1 flex=1
+              text placeCount testId="count"
+              button press=locate aria-label="Use my location" testId="locate"
+                image "symbol:location"
+              button press=addHere aria-label="Add a place" testId="add-here"
+                image "symbol:add"
+            if page.platform == "ios"
+              place-map testId="map" flex=1 min-height=0 width="100%" latitude=centerLat longitude=centerLon zoomLevel=zoom markers=markers.json pending=draftAt userLocation=(status.state == "granted") aria-label="Map of the places you visited. Long press to add one." change=moved message=longPressed
+              text "Long press the map to add a place." font="-exact-footnote" color="-exact-secondary-label" padding="8px 16px"
+            else
+              column flex=1 min-height=0 padding=16 gap=12
+                text "The map is in the iPhone app. Use + to add a place here." font="-exact-footnote" color="-exact-secondary-label"
+                for p in places key=p.id
+                  row gap=12 align-items="center"
+                    if p.photo != ""
+                      image p.photo width=44 height=44 object-fit="cover" border-radius=6
+                    column gap=2
+                      text (p.label == "" ? p.latitude.toFixed(4) + ", " + p.longitude.toFixed(4) : p.label)
+                      text (p.latitude.toFixed(4) + ", " + p.longitude.toFixed(4)) font="-exact-footnote" color="-exact-secondary-label" font-variant-numeric="tabular-nums"
+        if e.name == "add"
+          column navigationKey=`${e.id}` navigationPresentation="modal" navigationDetent="medium" testId="sheet" position="absolute" inset=0 display="flex" flex-direction="column" background-color="-exact-background"
+            header display="flex" align-items="center"
+              text "New place" role="heading" aria-level=2 flex=1
+            scroll id="add-form" flex=1 min-height=0 padding=16 display="flex" flex-direction="column" gap=16
+              row gap=12 align-items="center"
+                if draftPhoto != ""
+                  image draftPhoto testId="photo" width=64 height=64 object-fit="cover" border-radius=8
+                button press=take buttonStyle="bordered" testId="take-photo" flex=1
+                  image "symbol:camera"
+                  text (draftPhoto == "" ? "Take a photo" : "Retake photo")
+              if shotError != ""
+                text shotError testId="camera-error" font="-exact-footnote" color="-exact-system-red"
+              column gap=4
+                text "Coordinates" font="-exact-footnote" color="-exact-secondary-label"
+                text draftAt testId="coords" font-variant-numeric="tabular-nums"
+              input value=draftLabel input=editLabel submit=save placeholder="Label (optional)" aria-label="Label" testId="label"
+              if saveError != ""
+                text saveError testId="save-error" font="-exact-footnote" color="-exact-system-red"
+            row role="toolbar" toolbarPlacement="keyboard" gap=12 padding=16 flex-shrink=0
+              button id="back" press=cancel buttonStyle="bordered" color="-exact-system-red" flex=1 testId="cancel"
+                text "Cancel"
+              button press=save buttonStyle="filled" flex=1 disabled=(pending(added)) testId="save"
+                text "Save"

@@ -1,0 +1,19 @@
+test "a place is added with its coordinates"
+  tap "add-here"
+  clock settle
+  expect text "coords" == "0.000000, 0.000000"
+  type "label" "Coffee"
+  tap "save"
+  clock data
+  expect text "count" == "1 place"
+  expect state places.0 .label == "Coffee"
+  expect state places.0 .latitude == 0
+
+test "cancel keeps nothing"
+  tap "add-here"
+  clock settle
+  type "label" "Bakery"
+  tap "cancel"
+  clock data
+  expect state places == []
+  expect text "count" == "0 places"
